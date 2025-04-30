@@ -1,6 +1,6 @@
 import Header from "./components/Header";
 import Main from "./components/Main";
-import { useEffect, useReducer } from "react";
+import { useReducer } from "react";
 import Loader from "./components/Loader";
 import Err from "./components/Err";
 import StartScreen from "./components/StartScreen";
@@ -10,61 +10,68 @@ import NextButton from "./components/NextButton";
 import Progress from "./components/Progress";
 import Footer from "./components/Footer";
 import Timer from "./components/Timer";
+import { questions } from "./data/questions";
+import LevelScreen from "./components/LevelScreen";
+import CompleteScreen from "./components/CompleteScreen";
+
+function createShuffledQuestionOrder(totalQuestions) {
+  const indices = Array.from({ length: totalQuestions }, (_, i) => i);
+
+  for (let i = indices.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [indices[i], indices[j]] = [indices[j], indices[i]];
+  }
+
+  return indices;
+}
 
 // Todo: Varsayılan state'ler
 const initialState = {
-  questions: [],
+  questions: [...questions],
+  quizSort: [...createShuffledQuestionOrder(questions.length)],
+  level: 1,
   // loading, error, ready, active, finished
-  status: "loading",
+  status: "ready",
   index: 0,
   answer: null,
   points: 0,
   highScore: 0,
-  secondsRemaining: null,
+  secondsRemaining: 100,
 };
-
-// Todo: Soru başına düşen saniye
-const SECS_PER_SECONDS = 30;
 
 // Todo: State yönetimi
 function reducer(state, action) {
   switch (action.type) {
-    // Todo: Fetch başarılı ise soruları aktar.
-    // Todo: Durumu ready olarak değiştir.
-    case "setData":
-      return { ...state, questions: action.payload, status: "ready" };
-    // Todo: Fetch başarısız ise durumu error olarak değiştir.
-    case "dataFailed":
-      return { ...state, status: "error" };
-    // Todo: Başlarken durumu active yap.
-    // Todo: Aynı zamanda süreyi ayarla.
     case "start":
       return {
         ...state,
         status: "active",
-        secondsRemaining: state.questions.length * SECS_PER_SECONDS,
       };
     // Todo: Cevabı işaretlediğinde, soruyu tespit et.
     // Todo: answer içerisine işaretlenen cevap sıra numarasını aktar.
     // Todo: işaretlenen cevap sıra numarası, api'deki doğru şık ise;
     // Todo: puana soru puanını ekle, değilse soru puanı olarak devam et.
     case "newAnswer":
-      const question = state.questions.at(state.index);
+      const isLevel = state.index !== 0 && (state.index + 1) % 10 === 0;
+      const question = state.questions.at(state.quizSort.at(state.index));
+      const numQuiz = state.questions.length - 1;
       return {
         ...state,
-        answer: action.payload,
+        index: state.index + 1,
+        status:
+          state.index < numQuiz
+            ? !isLevel
+              ? action.payload !== question?.correctOption
+                ? "finished"
+                : state.status
+              : "levelUp"
+            : "complete",
         points:
           action.payload === question?.correctOption
             ? state.points + question.points
             : state.points,
-      };
-    // Todo: Sıradaki soruya tıkladığımızda index'i 1 arttır.
-    // Todo: Cevabı işaretlenmemiş olarak güncelle.
-    case "nextQuestion":
-      return {
-        ...state,
-        index: state.index + 1,
-        answer: null,
+        highScore:
+          state.points > state.highScore ? state.points : state.highScore,
       };
     // Todo: Süre bittiğinde veya soru sayısı bittiğinde aktif olacak.
     // Todo: Durumu finished olarak ayarla.
@@ -81,9 +88,9 @@ function reducer(state, action) {
     case "restartQuiz":
       return {
         ...initialState,
-        questions: state.questions,
-        status: "ready",
+        status: "active",
         highScore: state.highScore,
+        quizSort: [...createShuffledQuestionOrder(questions.length)],
       };
     // Todo: Her 1 saniyede tetiklenecek olan tik'de saniyeyi 1 azalt.
     // Todo: secondsRemaining 0 ise durumu finished yap yoksa durum kalsın.
@@ -91,7 +98,15 @@ function reducer(state, action) {
       return {
         ...state,
         secondsRemaining: state.secondsRemaining - 1,
+        highScore:
+          state.points > state.highScore ? state.points : state.highScore,
         status: state.secondsRemaining === 0 ? "finished" : state.status,
+      };
+    case "nextLevel":
+      return {
+        ...state,
+        level: state.level + 1,
+        status: "active",
       };
     // Todo: Yanlış komut geldiyse hata döndür.
     default:
@@ -102,7 +117,17 @@ function reducer(state, action) {
 function App() {
   // Todo: tüm state'leri kullanılabilir olarak dışa aktar.
   const [
-    { questions, status, index, answer, points, highScore, secondsRemaining },
+    {
+      questions,
+      status,
+      index,
+      answer,
+      points,
+      highScore,
+      secondsRemaining,
+      quizSort,
+      level,
+    },
     dispatch,
   ] = useReducer(reducer, initialState);
 
@@ -113,23 +138,23 @@ function App() {
     0,
   );
 
-  // Todo: Api'den soruları çek
-  useEffect(() => {
-    async function fetchQuestions() {
-      try {
-        const res = await fetch("http://localhost:8000/questions");
-        if (!res.ok) throw new Error("Failed to fetch questions");
-        const data = await res.json();
-        // Todo: Data geldiyse setData'yı çalıştır.
-        dispatch({ type: "setData", payload: data });
-      } catch (error) {
-        // Todo: Error varsa dataFailed'ı çalıştır.
-        dispatch({ type: "dataFailed" });
-      }
-    }
-
-    fetchQuestions();
-  }, []);
+  // // Todo: Api'den soruları çek
+  // useEffect(() => {
+  //   async function fetchQuestions() {
+  //     try {
+  //       const res = await fetch("http://localhost:8000/questions");
+  //       if (!res.ok) throw new Error("Failed to fetch questions");
+  //       const data = await res.json();
+  //       // Todo: Data geldiyse setData'yı çalıştır.
+  //       dispatch({ type: "setData", payload: data });
+  //     } catch (error) {
+  //       // Todo: Error varsa dataFailed'ı çalıştır.
+  //       dispatch({ type: "dataFailed" });
+  //     }
+  //   }
+  //
+  //   fetchQuestions();
+  // }, []);
 
   return (
     <div className="app">
@@ -143,6 +168,9 @@ function App() {
         {status === "ready" && (
           <StartScreen numQuestions={numQuestions} dispatch={dispatch} />
         )}
+        {status === "levelUp" && (
+          <LevelScreen level={level} dispatch={dispatch} points={points} />
+        )}
         {/* Todo: Duruma göre soruları çalıştır */}
         {status === "active" && (
           <>
@@ -154,7 +182,7 @@ function App() {
               answer={answer}
             />
             <Question
-              question={questions.at(index)}
+              question={questions.at(quizSort.at(index))}
               dispatch={dispatch}
               answer={answer}
             />
@@ -178,6 +206,7 @@ function App() {
             dispatch={dispatch}
           />
         )}
+        {status === "complete" && <CompleteScreen dispatch={dispatch} />}
       </Main>
     </div>
   );
